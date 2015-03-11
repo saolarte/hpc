@@ -2,10 +2,7 @@
 #include <stdio.h>
 #include<time.h>
 
-
-
-
-
+#define TILE_WIDTH 32
 
 
 
@@ -57,13 +54,38 @@ __global__ void matrixMulKernel(int *d_A, int *d_B, int *d_C, int tam){
 }
 
 
+__global__ void matrixMulKernelTiled(int *d_M, int *d_N, int *d_P, int width){
+    __shared__ int Mds[TILE_WIDTH][TILE_WIDTH];
+    __shared__ int Nds[TILE_WIDTH][TILE_WIDTH];
 
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+
+    int row = by * TILE_WIDTH + ty;
+    int col = bx * TILE_WIDTH + tx;
+
+    float Pvalue = 0;
+
+    for(int m = 0; m < width / TILE_WIDTH; ++m){
+  Mds[ty][tx] = d_M[row*width + m*TILE_WIDTH + tx];
+  Nds[ty][tx] = d_N[(m*TILE_WIDTH + ty) * width + col];
+  __syncthreads();
+
+  for(int k = 0; k < TILE_WIDTH; ++k){
+    Pvalue += Mds[ty][k] * Nds[k][tx];      
+  }
+  __syncthreads();
+    }
+    d_P[row*width+col] = Pvalue;
+}
 
 
 
 int main(){
-  clock_t sec_ini, sec_fin, par_ini, par_fin;
-  double tiempo_sec, tiempo_par;
+  clock_t sec_ini, sec_fin, par_ini, par_fin, tile_ini, tile_fin;
+  double tiempo_sec, tiempo_par, tiempo_tile;
    
   int tam= 1024;
   int size= tam*tam*sizeof (int);
@@ -71,16 +93,18 @@ int main(){
   
   
   //////////////////////////////VARIABLES EN HOST/////////////////////////////////
-  int *h_A, *h_B, *h_C, *sec_C;
+  int *h_A, *h_B, *h_Cp, *h_Ct, *sec_C;
   ////////////////////////////////Reservar memoria///////////////////////////////
   h_A = (int * ) malloc (size);
   h_B = (int * ) malloc (size);
-  h_C = (int * ) malloc (size);
+  h_Cp = (int * ) malloc (size);
+  h_Ct = (int * ) malloc (size);
   sec_C = (int * ) malloc (size);
   /////////////////////////Inicializar variables en host/////////////////////////
   inic_matriz(h_A, tam);
   inic_matriz(h_B, tam);
-  inic_matriz(h_C, tam);
+  inic_matriz(h_Cp, tam);
+  inic_matriz(h_Ct, tam);
   ////////////////////////////VARIABLES EN HOST////////////////////////////////
    
   
@@ -100,36 +124,63 @@ int main(){
   
 /////////////////////////////EJECUCUCION ALGORITMO PARALELO/////////////////////////////////////////
  /////////////////////////////Variables en device////////////////////////////
-  int *d_A, *d_B, *d_C;
+  int *d_A, *d_B, *d_Cp, *d_Ct;
 ///////////////////////////////Reserva de memoria////////////////////////////////
   
   cudaMalloc((void**)&d_A,size);
   cudaMalloc((void**)&d_B,size);
-  cudaMalloc((void**)&d_C,size);
+  cudaMalloc((void**)&d_Cp,size);
+  cudaMalloc((void**)&d_Ct,size);
+  
 
   
-  par_ini=clock();
+  
   
   
   cudaMemcpy(d_A,h_A,size,  cudaMemcpyHostToDevice);
   cudaMemcpy(d_B,h_B,size,  cudaMemcpyHostToDevice);
-  cudaMemcpy(d_C,h_C,size,  cudaMemcpyHostToDevice);
+  cudaMemcpy(d_Cp,h_Cp,size,  cudaMemcpyHostToDevice);
+  cudaMemcpy(d_Ct,h_Ct,size,  cudaMemcpyHostToDevice);
   
   
-  int blockSize = 4;
+  int blockSize = 32;
   dim3 dimBlock(blockSize,blockSize,1);
   dim3 dimGrid(ceil(tam/float(blockSize)),ceil(tam/float(blockSize)),1);
-  matrixMulKernel<<<dimGrid,dimBlock>>>(d_A,d_B,d_C,tam);
+  
+  
+  par_ini=clock();
+  matrixMulKernel<<<dimGrid,dimBlock>>>(d_A,d_B,d_Cp,tam);
   cudaDeviceSynchronize();
-  cudaMemcpy(h_C,d_C,size,cudaMemcpyDeviceToHost);
-   
+  cudaMemcpy(h_Cp,d_Cp,size,cudaMemcpyDeviceToHost);
+  
   
   par_fin=clock();
   tiempo_par= ((double) (par_fin - par_ini)) / CLOCKS_PER_SEC;
   printf("EL ALGORITMO PARALELO TARDO: %.10f\n", tiempo_par);
     
   
-  cudaFree(d_A); cudaFree(d_B);  cudaFree(d_C);
+  cudaFree(d_A); cudaFree(d_B);  cudaFree(d_Cp);
+  
+  
+  ///////////////////////////////////////////////////////////////////////////////
+  
+  
+  tile_ini=clock();
+  
+      
+  matrixMulKernelTiled<<<dimGrid,dimBlock>>>(d_A,d_B,d_Ct,tam);
+  cudaDeviceSynchronize();
+  cudaMemcpy(h_Ct,d_Ct,size,cudaMemcpyDeviceToHost);
+   
+  
+  tile_fin=clock();
+  
+  tiempo_tile= ((double) (tile_fin - tile_ini)) / CLOCKS_PER_SEC;
+  printf("EL ALGORITMO PARALELO USANDO TILING TARDO: %.10f\n", tiempo_tile);
+    
+  
+  cudaFree(d_A); cudaFree(d_B);  cudaFree(d_Cp);
+  
   
 }
 
