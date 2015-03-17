@@ -5,7 +5,24 @@
 #define TILE_WIDTH 32
 
 
-void multMxN(int *A,int *B, int *C, int rA,int cA,int rB,int cB){
+using namespace std;
+
+__global__ void matrixMulKernel(float *d_A, float *d_B, float *d_C,int rA,int cA,int rB,int cB){
+    int row = blockIdx.y*blockDim.y+threadIdx.y;
+    int col = blockIdx.x*blockDim.x+threadIdx.x;
+    int Pvalue;
+    if((row < rA)&&(col < cB)){
+        Pvalue = 0;
+        for (int k = 0; k < rB ; ++k){
+            Pvalue += d_A[row*cA+k] * d_B[k*cB+col];
+        }
+        d_C[row*cB+col] = Pvalue;
+    }
+}
+
+
+
+void multMxN(float *A,float *B, float *C, float rA,int cA,int rB,int cB){
 	//El numero de col de A, debe ser igual al numero de row de B;
 	//Matriz C= FilasAxColumnasB
 
@@ -22,16 +39,16 @@ void multMxN(int *A,int *B, int *C, int rA,int cA,int rB,int cB){
     }
 }
 
-void llenar(int *MA,int n,int m){
+void llenar(float *MA,int n,int m){
 	int tam=n*m;
 	for(int  i = 0; i < tam; i++ )
         MA[i] = i;
 }
 
-void imprimir(int *MA,int n,int m){
+void imprimir(float *MA,int n,int m){
 	int tam=n*m,cont=0;
 	for(int i = 0; i < tam; i++ ) {
-        printf("%d ",MA[i]);
+        printf("%f ",MA[i]);
         if(cont==m-1){
             printf("\n");
             cont=-1;
@@ -41,53 +58,87 @@ void imprimir(int *MA,int n,int m){
 	printf("\n");
 }
 
-void comparar(int *C1,int *C2,int rC,int cC){
+void comparar(float *C1,float *C2,int rC,int cC){
 
     int w=rC*cC;
     for(int i=0;i<w;i++){
       if(C1[i]!=C2[i]){
-        printf ("No son iguales\n");
+        cout<<"No son iguales"<<endl;
         break;
       }
     }
-    printf("Son iguales\n");
+    cout<<"Son iguales"<<endl;
 }
 
 int main(){
 	int rA=128;
 	int cA=1024;
 	int cB=512;
+	float blockSize = TILE_WIDTH;
+
 	int rB=cA;
 
-	size_t bytesA=(rA*cA)*sizeof(int);
-	size_t bytesB=(rB*cB)*sizeof(int);
-	size_t bytesC=(rA*cB)*sizeof(int);
+	size_t bytesA=(rA*cA)*sizeof(float);
+	size_t bytesB=(rB*cB)*sizeof(float);
+	size_t bytesC=(rA*cB)*sizeof(float);
 
-	int *A=(int*)malloc(bytesA);
-	int *B=(int*)malloc(bytesB);
-	int *C1=(int*)malloc(bytesC);
-	int *C2=(int*)malloc(bytesC);
-	int *C3=(int*)malloc(bytesC);
-
-
-	//1.Lleno las matrices
+	float *A=(float*)malloc(bytesA);
+	float *B=(float*)malloc(bytesB);
+	float *C1=(float*)malloc(bytesC);
+	float *C2=(float*)malloc(bytesC);
+	
+	//Se inicializan las matrices
 	llenar(A,rA,cA);
 	llenar(B,rB,cB);
 
-	//2.imprimo las matrices
-	//cout<<"Matriz A:"<<endl;
-	//imprimir(A,rA,cA);
-
-	//cout<<"Matriz B:"<<endl;
-	//imprimir(B,rB,cB);
-
-	//3.Multiplico matrices NxM Secuencial
+	
+	//MULTIPLICACION SECUENCIAL DE MATRICES
 	clock_t start = clock();      
     multMxN(A,B,C1,rA,cA,rB,cB);
     clock_t end= clock(); 
   	double elapsed_seconds=end-start;
-    printf("Tiempo transcurrido Secuencial: %lf\n", (elapsed_seconds / CLOCKS_PER_SEC));
+    printf("Tiempo algoritmo secuencial Secuencial: %lf\n", (elapsed_seconds / CLOCKS_PER_SEC));
+    
+	//MULTIPLICACION EN PARALELO SIN TILES
+    float *d_A;
+	float *d_B;
+    float *d_C;
+	// Allocate memory for each vector on GPU
+    cudaMalloc(&d_A,bytesA);
+    cudaMalloc(&d_B,bytesB);
+    cudaMalloc(&d_C,bytesC);
+	
+    
 
+	// Copy host vectors to device
+    cudaMemcpy( d_A, A, bytesA, cudaMemcpyHostToDevice);
+    cudaMemcpy( d_B, B, bytesB, cudaMemcpyHostToDevice);
+
+  
+	//bloques
+	dim3 dimGrid(ceil(cB/blockSize),ceil(rA/blockSize),1);
+	//hilos
+	dim3 dimBlock(blockSize,blockSize,1);
+  //Tiempo de ejecucion Paralelo
+	clock_t start2 = clock();   
+	 
+    // Execute the kernel
+    matrixMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C,rA,cA,rB,cB);
+    //multTiled<<<dimGrid, dimBlock>>>(d_A, d_B, d_C,rA,cA,rB,cB);
+    cudaDeviceSynchronize();
+    // Copy array back to host
+    cudaMemcpy( C2, d_C, bytesC, cudaMemcpyDeviceToHost );
+    clock_t end2= clock(); 
+  	double elapsed_seconds2=end2-start2;
+    printf("Tiempo transcurrido Paralelo SinTile: %lf\n", (elapsed_seconds2 / CLOCKS_PER_SEC));  
+      
+   
+	comparar(C1,C2,rA,cB);
+	
+	// Release device memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
  
     // Release host memory
     free(A);
