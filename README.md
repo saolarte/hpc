@@ -1,4 +1,3 @@
 # hpc
-
-Multiplicación de matrices utilizando la técnica de tiling
+Actividades realizadas en la asignatura HPC (2015-1)
 

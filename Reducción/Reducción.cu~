@@ -28,8 +28,6 @@ __global__ void reduce(int *g_idata, int *g_odata) {
 }
 
 
-
-
 void llenar(float *MA,int n,int m){
 	int tam=n*m;
 	for(int  i = 0; i < tam; i++ )
@@ -49,52 +47,3 @@ void comparar(float *C1,float *C2,int rC,int cC){
     cout<<"Son iguales"<<endl;
 }
 
-
-
-
-void imprimir(float *MA,int n,int m){
-    int tam=n*m,cont=0;
-    for(int i = 0; i < tam; i++ ) {
-        printf("%f ",MA[i]);
-       if(cont==m-1){
-            printf("\n");
-            cont=-1;
-        }
-        cont++;
-    }
-    printf("\n");
-}
-
-int main(){
-  
-    size_t tam=(SIZE)*sizeof(int);
-    int *vect_in=(int*)malloc(bytesA);
-    int *vect_out=(int*)malloc(bytesA);
-    int *d_vector_in, d_vector_out;
-	
-    //bloques
-    dim3 dimGrid(ceil(SIZE/BLOCKSIZE),ceil(SIZE/BLOCKSIZE),1);
-	//hilos
-	dim3 dimBlock(BLOCKSIZE, BLOCKSIZE,1);
-    cudaDeviceSynchronize();
-    
-  
-    llenar(vec, tam);
-  
-    //ALGORITMO PARALELO
-    clock_t start = clock(); 
-  
-    cudaMalloc(&d_vect_in,SIZE);
-    cudaMalloc(&d_vect_oput,SIZE);
-  
-    reduce<<<dimGrid, dimBlock>>>(vect_in vect_out);
-  
-    clock_t end= clock();
-     
-  
-    //LIBERAR MEMORIA
-    free(vec);
-    cudaFree(d_vect);
-  
-
-}
